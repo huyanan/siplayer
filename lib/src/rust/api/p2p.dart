@@ -7,12 +7,13 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `add_and_prepare`, `add_new`, `bind_loopback_listener`, `init_state`, `largest_file_of`, `largest_index`, `random_hex`, `run_on_rt`, `state`
+// These functions are ignored because they are not marked as `pub`: `add_and_prepare`, `add_new`, `bind_loopback_listener`, `cleanup_failed`, `ensure_file_selected_after_init`, `ensure_file_selected`, `init_state`, `is_error_state`, `largest_file_of`, `largest_index`, `parse_info_hash`, `random_hex`, `run_on_rt`, `state`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `P2pState`
 
-/// 添加 magnet（同 infohash 已存在则复用），等待元数据，返回本地流地址。
+/// 添加 magnet（同 infohash 已存在则复用并增加引用计数），等待元数据与初始化，返回本地流地址。
 ///
 /// `file_index` 为 None 时自动选择 torrent 内最大的文件，且只下载该文件。
+/// 超时或失败时，本次调用新加入的 torrent（以及处于 Error 状态的 torrent）会被移除。
 Future<P2pHandle> p2PStart({required String magnet, int? fileIndex}) => RustLib
     .instance
     .api
@@ -22,7 +23,8 @@ Future<P2pHandle> p2PStart({required String magnet, int? fileIndex}) => RustLib
 Future<P2pProgress> p2PProgress({required PlatformInt64 torrentId}) =>
     RustLib.instance.api.crateApiP2PP2PProgress(torrentId: torrentId);
 
-/// 停止并移除 torrent，保留已下载文件作为缓存。对不存在的 id 视为成功（幂等）。
+/// 释放一次 `p2p_start` 的持有；计数归零时停止并移除 torrent（保留已下载文件作为缓存）。
+/// 对未知 / 已释放的 id 视为成功（幂等）。
 Future<void> p2PRelease({required PlatformInt64 torrentId}) =>
     RustLib.instance.api.crateApiP2PP2PRelease(torrentId: torrentId);
 
@@ -52,7 +54,10 @@ class P2pHandle {
           torrentId == other.torrentId;
 }
 
-/// 下载进度。`total_bytes` 在元数据未就位时为 None。
+/// 下载进度。
+///
+/// `total_bytes`：被 session 管理的 torrent 一定已有元数据（magnet 在加入 session 前就已解析完），
+/// 因此对有效 id 总是 Some；保留 Option 仅为接口兼容。
 class P2pProgress {
   final BigInt? totalBytes;
   final BigInt downloadedBytes;
