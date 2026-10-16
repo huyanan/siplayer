@@ -27,10 +27,14 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _load() async {
     try {
       final playable = await widget.registry.resolve(widget.ref);
+      // 页面已销毁则不再 open，资源释放由 dispose 中的 release 负责
+      if (!mounted) return;
       await _controller.open(playable);
     } on SourceNotAvailableException catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.reason);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = '$e');
     }
   }

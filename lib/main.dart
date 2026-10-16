@@ -9,15 +9,17 @@ import 'src/ui/player_page.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  runApp(const SiplayerApp());
+  // registry 只建一次，避免根部 rebuild 产生新实例导致 resolve/release 不对应
+  final registry = SourceRegistry()..register(HttpStreamProvider());
+  runApp(SiplayerApp(registry: registry));
 }
 
 class SiplayerApp extends StatelessWidget {
-  const SiplayerApp({super.key});
+  final SourceRegistry registry;
+  const SiplayerApp({super.key, required this.registry});
 
   @override
   Widget build(BuildContext context) {
-    final registry = SourceRegistry()..register(HttpStreamProvider());
     const demo = MediaRef(
       sourceId: 'http',
       locator:
