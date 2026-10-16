@@ -49,9 +49,10 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Scaffold(body: Center(child: Text('播放失败：$_error')));
+      return Scaffold(appBar: AppBar(), body: Center(child: Text('播放失败：$_error')));
     }
     return Scaffold(
+      appBar: AppBar(),
       body: Video(controller: _controller.videoController),
     );
   }

@@ -47,11 +47,19 @@ class HomePage extends StatelessWidget {
       subtitle: available ? null : Text(demo.ref.sourceId == 'p2p' ? '当前平台不支持 P2P' : '当前平台不支持该源'),
       enabled: available,
       onTap: available
-          ? () => Navigator.of(context).push(
+          ? () {
+              // 每次打开都新建 MediaRef：P2PProvider 按请求实例记账，不能复用共享的 const 实例
+              final ref = MediaRef(
+                sourceId: demo.ref.sourceId,
+                locator: demo.ref.locator,
+                fileIndex: demo.ref.fileIndex,
+              );
+              Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => PlayerPage(registry: registry, ref: demo.ref),
+                  builder: (_) => PlayerPage(registry: registry, ref: ref),
                 ),
-              )
+              );
+            }
           : null,
     );
   }
