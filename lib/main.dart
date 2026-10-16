@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -9,7 +10,10 @@ import 'src/ui/player_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await RustLib.init();
+  // Web 端无 P2P（spec §8），不加载 Rust 库
+  if (!kIsWeb) {
+    await RustLib.init();
+  }
   MediaKit.ensureInitialized();
   // registry 只建一次，避免根部 rebuild 产生新实例导致 resolve/release 不对应
   final registry = SourceRegistry()..register(HttpStreamProvider());
