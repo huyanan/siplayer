@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'src/rust/frb_generated.dart';
+import 'src/source/cache_registry.dart';
 import 'src/source/http_stream_provider.dart';
-import 'src/source/media_ref.dart';
+import 'src/source/p2p_provider.dart';
 import 'src/source/source_provider.dart';
-import 'src/ui/player_page.dart';
+import 'src/ui/home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,8 +16,12 @@ Future<void> main() async {
     await RustLib.init();
   }
   MediaKit.ensureInitialized();
+  // 与 App 同生命周期，无需 dispose
+  final cacheRegistry = CacheRegistry();
   // registry 只建一次，避免根部 rebuild 产生新实例导致 resolve/release 不对应
-  final registry = SourceRegistry()..register(HttpStreamProvider());
+  final registry = SourceRegistry()
+    ..register(HttpStreamProvider())
+    ..register(P2PProvider(cacheRegistry));
   runApp(SiplayerApp(registry: registry));
 }
 
@@ -26,14 +31,9 @@ class SiplayerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const demo = MediaRef(
-      sourceId: 'http',
-      locator:
-          'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-    );
     return MaterialApp(
       title: 'siplayer',
-      home: PlayerPage(registry: registry, ref: demo),
+      home: HomePage(registry: registry),
     );
   }
 }
