@@ -26,7 +26,7 @@ use tokio::sync::{Mutex, OnceCell};
 const METADATA_TIMEOUT_SECS: u64 = 60;
 
 /// 读取停滞判定秒数（断流上报「无可用 peer」）。
-// 停滞检测延后实现：边下边播稳定后再补检测逻辑，本任务只定义常量。
+// FIXME(M3): 读取停滞检测未实现，见 spec §6
 #[allow(dead_code)]
 const READ_STALL_SECS: u64 = 30;
 
@@ -116,6 +116,8 @@ pub async fn p2p_start(magnet: String, file_index: Option<u32>) -> Result<P2pHan
                 }
             };
 
+            // 先做 id 转换再递增计数：转换失败不会遗留计数。
+            let torrent_id = i64::try_from(id).context("torrent id 超出 i64 范围")?;
             let mut refs = st.refs.lock().await;
             // 等待期间可能被并发的 release 删掉了，此时重新添加。
             if st.session.get(TorrentIdOrHash::Id(id)).is_none() {
@@ -130,7 +132,7 @@ pub async fn p2p_start(magnet: String, file_index: Option<u32>) -> Result<P2pHan
                     st.port, id, file_idx
                 ),
                 auth_header: st.auth_header.clone(),
-                torrent_id: i64::try_from(id).context("torrent id 超出 i64 范围")?,
+                torrent_id,
             });
         }
         Err(anyhow!("torrent 在启动期间被并发释放，请重试"))
