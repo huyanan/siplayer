@@ -42,10 +42,12 @@ class _PlayerPageState extends State<PlayerPage> {
     _errorSub = null;
     _cacheSub = null;
     final controller = PlaybackController();
-    _controller = controller;
     try {
       final playable = await widget.registry.resolve(_currentRef);
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
       _errorSub = controller.error.listen((msg) {
         if (mounted) setState(() => _error = msg);
       });
@@ -64,6 +66,9 @@ class _PlayerPageState extends State<PlayerPage> {
           });
         }
       });
+      // 挂载 Video 并触发 rebuild —— 否则 HLS 等无 cacheStream 的源会永远停在
+      // 初始的 CircularProgressIndicator 上（底层已在播但 UI 不刷新）。
+      setState(() => _controller = controller);
       await controller.open(playable);
     } on SourceNotAvailableException catch (e) {
       if (mounted) setState(() => _error = e.reason);
