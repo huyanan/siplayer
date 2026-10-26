@@ -37,6 +37,7 @@ dependencies:
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_macos_video: ^1.1.4
+  media_kit_libs_windows_video: ^1.0.11
   rust_lib_siplayer:
     path: rust_builder
   flutter_rust_bridge: 2.13.0

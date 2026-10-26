@@ -14,9 +14,11 @@ import 'source_provider.dart';
 /// Rust 侧按调用次数做引用计数：每一次成功的 [p2PStart] 必须且只能配对一次 [p2PRelease]。
 /// 因此这里按请求实例（[MediaRef] 对象身份）记账：每个实例至多一个持有，release 只影响该实例。
 class P2PProvider extends SourceProvider {
-  // 目前只接通了 macOS 的原生库与桥接；windows / android / iOS 随 M4 接入
+  // macOS 已验证；windows 已预留（runner + 依赖就绪，Rust dylib 需在 Windows 上
+  // 实测，未通过前由 rustReady 门控自动降级）；android / iOS 随 M4 接入
   static const Set<TargetPlatform> _supportedPlatforms = {
     TargetPlatform.macOS,
+    TargetPlatform.windows,
   };
 
   static const Duration _pollInterval = Duration(seconds: 1);
