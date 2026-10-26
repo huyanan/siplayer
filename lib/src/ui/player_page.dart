@@ -24,6 +24,7 @@ class _PlayerPageState extends State<PlayerPage> {
   StreamSubscription<CacheEntry>? _cacheSub;
   String? _error;
   bool _stalled = false;
+  bool _retrying = false;
 
   @override
   void initState() {
@@ -58,24 +59,30 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _retry() async {
-    await _errorSub?.cancel();
-    await _cacheSub?.cancel();
-    await _controller?.dispose();
-    await widget.registry.release(_currentRef);
-    // P2PProvider 按 MediaRef 实例记账，重试必须换新实例
-    _currentRef = MediaRef(
-      sourceId: widget.ref.sourceId,
-      locator: widget.ref.locator,
-      fileIndex: widget.ref.fileIndex,
-    );
-    if (!mounted) return;
-    setState(() {
-      _error = null;
-      _stalled = false;
-      _controller = null;
-    });
-    await _load();
-    if (mounted) setState(() {});
+    if (_retrying) return;
+    _retrying = true;
+    try {
+      await _errorSub?.cancel();
+      await _cacheSub?.cancel();
+      await _controller?.dispose();
+      await widget.registry.release(_currentRef);
+      // P2PProvider 按 MediaRef 实例记账，重试必须换新实例
+      _currentRef = MediaRef(
+        sourceId: widget.ref.sourceId,
+        locator: widget.ref.locator,
+        fileIndex: widget.ref.fileIndex,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = null;
+        _stalled = false;
+        _controller = null;
+      });
+      await _load();
+      if (mounted) setState(() {});
+    } finally {
+      _retrying = false;
+    }
   }
 
   @override
@@ -98,7 +105,7 @@ class _PlayerPageState extends State<PlayerPage> {
             children: [
               Text('播放失败：$_error'),
               const SizedBox(height: 12),
-              FilledButton(onPressed: _retry, child: const Text('重试')),
+              FilledButton(onPressed: _retrying ? null : _retry, child: const Text('重试')),
             ],
           ),
         ),
@@ -123,7 +130,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             const Text('无可用 peer，连接中…',
                                 style: TextStyle(color: Colors.white)),
                             const SizedBox(height: 12),
-                            FilledButton(onPressed: _retry, child: const Text('重试')),
+                            FilledButton(onPressed: _retrying ? null : _retry, child: const Text('重试')),
                           ],
                         ),
                       ),
