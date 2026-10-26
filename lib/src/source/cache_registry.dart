@@ -1,6 +1,6 @@
 import 'dart:async';
 
-enum CacheState { unsupported, active, complete, error }
+enum CacheState { unsupported, active, complete, error, stalled }
 
 /// 字节区间，半开区间 [start, end)
 class ByteRange {

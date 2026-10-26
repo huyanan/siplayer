@@ -21,6 +21,9 @@ class P2PProvider extends SourceProvider {
 
   static const Duration _pollInterval = Duration(seconds: 1);
 
+  /// 下载连续无增长达到该轮询次数（间隔 1s ≈ 30s）即判定停滞，对齐 spec §6
+  static const int _stallThresholdTicks = 30;
+
   final CacheRegistry cacheRegistry;
 
   /// Rust 库是否初始化成功；失败时本源对外报告不可用
@@ -43,6 +46,12 @@ class P2PProvider extends SourceProvider {
 
   /// 正在等待 p2PProgress 返回的 torrentId，避免轮询重入
   final Set<PlatformInt64> _polling = {};
+
+  /// torrentId -> 上次观测到的已下载字节数
+  final Map<PlatformInt64, int> _lastDownloaded = {};
+
+  /// torrentId -> 连续无增长的轮询次数
+  final Map<PlatformInt64, int> _noProgressTicks = {};
 
   P2PProvider(this.cacheRegistry, {this.rustReady = true});
 
@@ -80,10 +89,12 @@ class P2PProvider extends SourceProvider {
     _holds[ref] = torrentId;
     _idHolds[torrentId] = (_idHolds[torrentId] ?? 0) + 1;
     _ensurePolling(torrentId);
+    final key = _cacheKeyOf(torrentId);
     return Playable(
       url: Uri.parse(handle.streamUrl),
       headers: {'Authorization': handle.authHeader},
-      cacheKey: _cacheKeyOf(torrentId),
+      cacheKey: key,
+      cacheStream: cacheRegistry.watch(key),
     );
   }
 
@@ -101,6 +112,8 @@ class P2PProvider extends SourceProvider {
       // 该 torrent 的最后一个持有：停止轮询并清理缓存登记
       _pollers.remove(torrentId)?.cancel();
       cacheRegistry.remove(_cacheKeyOf(torrentId));
+      _lastDownloaded.remove(torrentId);
+      _noProgressTicks.remove(torrentId);
     }
     await _safeRelease(torrentId);
   }
@@ -125,12 +138,30 @@ class P2PProvider extends SourceProvider {
         return;
       }
       final downloaded = p.downloadedBytes.toInt();
+      final CacheState state;
+      if (p.finished) {
+        state = CacheState.complete;
+        _noProgressTicks.remove(torrentId);
+      } else {
+        final last = _lastDownloaded[torrentId];
+        if (last == null || downloaded > last) {
+          _noProgressTicks[torrentId] = 0;
+          state = CacheState.active;
+        } else {
+          final ticks = (_noProgressTicks[torrentId] ?? 0) + 1;
+          _noProgressTicks[torrentId] = ticks;
+          state = ticks >= _stallThresholdTicks
+              ? CacheState.stalled
+              : CacheState.active;
+        }
+      }
+      _lastDownloaded[torrentId] = downloaded;
       cacheRegistry.update(CacheEntry(
         cacheKey: _cacheKeyOf(torrentId),
         totalBytes: p.totalBytes?.toInt(),
         // M2 近似：用单区间 [0, downloaded) 表达已下载量；精确多区间（按 piece 位图）留 M3
         completed: downloaded > 0 ? [ByteRange(0, downloaded)] : const [],
-        state: p.finished ? CacheState.complete : CacheState.active,
+        state: state,
       ));
     } catch (_) {
       // torrent 已释放 / 竞态：静默停止该轮询，不向 Zone 顶层抛
