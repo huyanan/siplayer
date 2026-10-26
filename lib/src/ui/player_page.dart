@@ -26,6 +26,9 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _stalled = false;
   bool _retrying = false;
 
+  /// 已缓存比例 0..1（仅 P2P 源，算不出时为 null）
+  double? _cachedFraction;
+
   @override
   void initState() {
     super.initState();
@@ -47,8 +50,19 @@ class _PlayerPageState extends State<PlayerPage> {
         if (mounted) setState(() => _error = msg);
       });
       _cacheSub = playable.cacheStream?.listen((e) {
+        if (!mounted) return;
         final stalled = e.state == CacheState.stalled;
-        if (mounted && stalled != _stalled) setState(() => _stalled = stalled);
+        final total = e.totalBytes;
+        final cachedEnd = e.completed.isNotEmpty ? e.completed.last.end : 0;
+        final fraction = (total != null && total > 0)
+            ? (cachedEnd / total).clamp(0.0, 1.0)
+            : null;
+        if (stalled != _stalled || fraction != _cachedFraction) {
+          setState(() {
+            _stalled = stalled;
+            _cachedFraction = fraction;
+          });
+        }
       });
       await controller.open(playable);
     } on SourceNotAvailableException catch (e) {
@@ -76,6 +90,7 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() {
         _error = null;
         _stalled = false;
+        _cachedFraction = null;
         _controller = null;
       });
       await _load();
@@ -119,6 +134,17 @@ class _PlayerPageState extends State<PlayerPage> {
           : Stack(
               children: [
                 Positioned.fill(child: Video(controller: controller.videoController)),
+                if (_cachedFraction != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: LinearProgressIndicator(
+                      value: _cachedFraction,
+                      minHeight: 3,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
                 if (_stalled)
                   Positioned.fill(
                     child: ColoredBox(
