@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -41,6 +41,9 @@ const CREDENTIAL_BYTES: usize = 16;
 
 /// 日志里 infohash 只打印的前缀长度。
 const INFOHASH_LOG_PREFIX: usize = 8;
+
+/// P2P 下载目录容量上限（字节）；进程启动时按 LRU 清理到该值以内。
+const CACHE_LIMIT_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5 GiB
 
 /// 进程级专用 tokio 运行时；构建失败时保存错误信息，避免在公开接口路径上 panic。
 static RT: LazyLock<std::result::Result<Runtime, String>> = LazyLock::new(|| {
@@ -208,10 +211,23 @@ async fn state() -> Result<&'static P2pState> {
 
 /// §7 安全配置的唯一落点：下载目录、127.0.0.1 随机端口 HTTP server、随机 basic auth、Session。
 async fn init_state() -> Result<P2pState> {
-    let output_dir: PathBuf = std::env::temp_dir().join("siplayer-p2p");
+    // FIXME(后续): 会话运行中（有活跃 torrent 时）的增量清理需排除活跃 torrent 目录；
+    // 运行时可配置目录/上限的 setter 亦留后续。见 spec §4.3。
+    // 稳定的平台缓存目录（macOS 为 ~/Library/Caches）；取不到时回退临时目录
+    let output_dir: PathBuf = dirs::cache_dir()
+        .map(|c| c.join("siplayer").join("p2p"))
+        .unwrap_or_else(|| std::env::temp_dir().join("siplayer-p2p"));
     tokio::fs::create_dir_all(&output_dir)
         .await
         .context("创建 p2p 下载目录失败")?;
+
+    // 启动时按容量上限做一次 LRU 清理（此刻 Session 尚无活跃 torrent，安全）
+    {
+        let dir = output_dir.clone();
+        tokio::task::spawn_blocking(move || enforce_cache_limit(&dir, CACHE_LIMIT_BYTES))
+            .await
+            .ok();
+    }
 
     // 先绑本地端口再建 Session：绑定失败时不会遗留带 DHT/BT 监听的 Session。
     let listener = bind_loopback_listener()?;
@@ -509,4 +525,63 @@ fn largest_index(lengths: impl Iterator<Item = u64>) -> Option<usize> {
         .enumerate()
         .max_by_key(|(_, len)| *len)
         .map(|(i, _)| i)
+}
+
+/// 递归求某路径占用字节数；无法读取的项计 0。
+fn path_size(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_dir() {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return 0;
+        };
+        entries
+            .flatten()
+            .map(|e| path_size(&e.path()))
+            .sum()
+    } else {
+        meta.len()
+    }
+}
+
+/// 启动时 LRU 清理：下载目录顶层条目按修改时间从旧到新删除，直到总占用 ≤ limit。
+/// 仅在 init_state（Session 尚无任何活跃 torrent）时调用，不会误删正在使用的数据。
+fn enforce_cache_limit(dir: &Path, limit: u64) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut items: Vec<(PathBuf, u64, std::time::SystemTime)> = rd
+        .flatten()
+        .map(|e| {
+            let p = e.path();
+            let mtime = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            (p.clone(), path_size(&p), mtime)
+        })
+        .collect();
+    let mut total: u64 = items.iter().map(|(_, s, _)| *s).sum();
+    if total <= limit {
+        return;
+    }
+    items.sort_by_key(|(_, _, mtime)| *mtime); // 最旧在前
+    for (path, size, _) in items {
+        if total <= limit {
+            break;
+        }
+        let r = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        match r {
+            Ok(()) => {
+                total = total.saturating_sub(size);
+                tracing::info!("p2p 缓存清理：移除旧条目 {size} 字节");
+            }
+            Err(e) => tracing::warn!("p2p 缓存清理失败: {e}"),
+        }
+    }
 }
