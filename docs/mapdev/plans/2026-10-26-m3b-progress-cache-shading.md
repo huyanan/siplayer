@@ -40,8 +40,6 @@
   double? _cachedFraction;
 ```
 
-<!-- STEP2 -->
-
 - [ ] **Step 2: 扩展缓存订阅，算已缓存比例**
 
 把 `_load` 里的 `_cacheSub = playable.cacheStream?.listen(...)` 整段替换为：
