@@ -35,6 +35,8 @@ class HomePage extends StatelessWidget {
       body: ListView(
         children: [
           for (final demo in _demos) _buildTile(context, demo),
+          const Divider(height: 1),
+          _MagnetInputTile(registry: registry),
         ],
       ),
     );
@@ -69,4 +71,82 @@ class _DemoItem {
   final String title;
   final MediaRef ref;
   const _DemoItem({required this.title, required this.ref});
+}
+
+/// 用户自备磁力链输入：手动粘贴 magnet 即可播放，不做任何搜索/索引/资源发现。
+class _MagnetInputTile extends StatefulWidget {
+  final SourceRegistry registry;
+  const _MagnetInputTile({required this.registry});
+
+  @override
+  State<_MagnetInputTile> createState() => _MagnetInputTileState();
+}
+
+class _MagnetInputTileState extends State<_MagnetInputTile> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _play() {
+    final text = _controller.text.trim();
+    if (!text.startsWith('magnet:')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入以 magnet: 开头的磁力链接')),
+      );
+      return;
+    }
+    // 每次打开都新建 MediaRef：P2PProvider 按请求实例记账，不能复用
+    final ref = MediaRef(sourceId: 'p2p', locator: text);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlayerPage(registry: widget.registry, ref: ref),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available =
+        widget.registry.providerFor('p2p')?.isAvailableOnThisPlatform ?? false;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('播放自备磁力链'),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  enabled: available,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'magnet:?xt=urn:btih:...',
+                    isDense: true,
+                  ),
+                  onSubmitted: available ? (_) => _play() : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: available ? _play : null,
+                child: const Text('播放'),
+              ),
+            ],
+          ),
+          if (!available)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('当前平台不支持 P2P'),
+            ),
+        ],
+      ),
+    );
+  }
 }
